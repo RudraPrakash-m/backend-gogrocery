@@ -1,20 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const { authController } = require('../controllers');
-const { protect } = require('../middlewares');
+const { protect, authLimiter, otpLimiter } = require('../middlewares');
 
-router.post('/register', authController.registerShop);
-router.post('/verify-otp', authController.verifyOtp);
-router.post('/resend-otp', authController.resendOtp);
-router.post('/login', authController.loginShop);
+// Public Auth Routes (Protected with Rate Limiting)
+router.post('/register', authLimiter, authController.registerShop);
+router.post('/verify-otp', authLimiter, authController.verifyOtp);
+router.post('/resend-otp', otpLimiter, authController.resendOtp);
+router.post('/login', authLimiter, authController.loginShop);
 router.post('/logout', authController.logoutShop);
 
-// Password / PIN Reset Routes (Public)
-router.post('/forgot-password', authController.forgotPassword);
-router.post('/forgot-pin', authController.forgotPassword);
-router.post('/send-reset-otp', authController.forgotPassword);
-router.post('/reset-password', authController.resetPassword);
-router.post('/reset-pin', authController.resetPassword);
+// Password / PIN Reset Routes (Public with Rate Limiting)
+router.post('/forgot-password', otpLimiter, authController.forgotPassword);
+router.post('/forgot-pin', otpLimiter, authController.forgotPassword);
+router.post('/send-reset-otp', otpLimiter, authController.forgotPassword);
+router.post('/reset-password', authLimiter, authController.resetPassword);
+router.post('/reset-pin', authLimiter, authController.resetPassword);
+
 
 
 // Protected Auth Routes
