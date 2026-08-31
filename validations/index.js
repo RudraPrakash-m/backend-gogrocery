@@ -1,2 +1,5 @@
-// Validations module placeholder
-module.exports = {};
+const authValidation = require('./authValidation');
+
+module.exports = {
+  ...authValidation
+};

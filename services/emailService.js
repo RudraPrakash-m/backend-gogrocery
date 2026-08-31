@@ -101,7 +101,49 @@ const sendRegistrationSuccessEmail = async (toEmail, storeName, shopCode) => {
   }
 };
 
+/**
+ * Sends Password / PIN Reset OTP Email
+ */
+const sendPasswordResetOtpEmail = async (toEmail, otp, storeName = 'Merchant') => {
+  const mailOptions = {
+    from: config.smtp.from,
+    to: toEmail,
+    subject: 'GoGrocery - Password / PIN Reset OTP Code',
+    html: `
+      <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+        <h2 style="color: #2c3e50; text-align: center;">Reset Your Security PIN / Password</h2>
+        <p>Hello <strong>${storeName}</strong>,</p>
+        <p>We received a request to reset your GoGrocery Security PIN / Password. Please use the OTP code below to verify your request:</p>
+        <div style="background-color: #f8f9fa; text-align: center; padding: 15px; font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #e67e22; margin: 20px 0; border-radius: 6px;">
+          ${otp}
+        </div>
+        <p style="color: #7f8c8d; font-size: 14px;">This OTP is valid for 15 minutes. If you did not request this password reset, please ignore this email or contact support immediately.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+        <p style="text-align: center; color: #95a5a6; font-size: 12px;">© GoGrocery Team. All rights reserved.</p>
+      </div>
+    `
+  };
+
+  try {
+    const transporter = createTransporter();
+    if (transporter) {
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`[EmailService] Password reset OTP email sent to ${toEmail}: ${info.messageId}`);
+      return { success: true, messageId: info.messageId };
+    } else {
+      console.log(`[EmailService] SMTP credentials not set. [DEV RESET OTP for ${toEmail}]: ${otp}`);
+      return { success: true, devMode: true, otp };
+    }
+  } catch (error) {
+    console.error(`[EmailService Error] Failed to send reset OTP email to ${toEmail}:`, error.message);
+    console.log(`[DEV FALLBACK RESET OTP for ${toEmail}]: ${otp}`);
+    return { success: false, error: error.message, devOtp: otp };
+  }
+};
+
 module.exports = {
   sendOtpEmail,
-  sendRegistrationSuccessEmail
+  sendRegistrationSuccessEmail,
+  sendPasswordResetOtpEmail
 };
+

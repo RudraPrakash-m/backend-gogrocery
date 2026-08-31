@@ -17,6 +17,7 @@ const shopSchema = new mongoose.Schema({
   phone: {
     type: String,
     required: [true, 'Phone number is required'],
+    unique: true,
     trim: true
   },
   password: {
@@ -62,6 +63,16 @@ const shopSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Partial unique index for GSTIN (enforces uniqueness only when GSTIN is non-empty)
+shopSchema.index(
+  { gstin: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { gstin: { $type: 'string', $gt: '' } }
+  }
+);
+
 
 // Pre-save hook to hash password before saving
 shopSchema.pre('save', async function () {
