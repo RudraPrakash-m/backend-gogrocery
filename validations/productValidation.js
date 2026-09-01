@@ -3,12 +3,22 @@ const { z } = require('zod');
 const VALID_UNITS = ['Pcs', 'Kg', 'G', 'L', 'Ml', 'Pack', 'Dozen'];
 const VALID_GST_RATES = [0, 5, 12, 18, 28];
 
+const formatZodIssue = (issue) => {
+  if (!issue) return 'Invalid input data';
+  const path = issue.path && issue.path.length > 0 ? issue.path.join('.') : '';
+  if (path) {
+    return `Field '${path}': ${issue.message}`;
+  }
+  return issue.message;
+};
+
 /**
  * Validation schema for Creating a New Product
  */
 const createProductSchema = z.object({
   name: z.string({
-    required_error: 'Product name is required'
+    required_error: 'Product name is required',
+    invalid_type_error: 'Product name must be a string'
   }).trim().min(2, 'Product name must be at least 2 characters long').max(150, 'Product name cannot exceed 150 characters'),
   barcode: z.string().trim().optional().transform(val => (val ? val.trim() : undefined)),
   category: z.string().trim().min(1, 'Category cannot be empty').default('Grocery').optional(),
@@ -29,7 +39,6 @@ const createProductSchema = z.object({
   }).default(0).optional()
 });
 
-
 /**
  * Helper to validate create product payload
  */
@@ -44,7 +53,7 @@ const validateCreateProductPayload = (data) => {
 
   const result = createProductSchema.safeParse(data);
   if (!result.success) {
-    const errorMsg = result.error.issues?.[0]?.message || 'Invalid product data';
+    const errorMsg = formatZodIssue(result.error.issues?.[0]);
     return {
       isValid: false,
       error: errorMsg,
@@ -79,7 +88,6 @@ const updateProductSchema = z.object({
   }).optional()
 });
 
-
 /**
  * Helper to validate update product payload
  */
@@ -94,7 +102,7 @@ const validateUpdateProductPayload = (data) => {
 
   const result = updateProductSchema.safeParse(data);
   if (!result.success) {
-    const errorMsg = result.error.issues?.[0]?.message || 'Invalid product update data';
+    const errorMsg = formatZodIssue(result.error.issues?.[0]);
     return {
       isValid: false,
       error: errorMsg,

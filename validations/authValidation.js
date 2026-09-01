@@ -2,15 +2,26 @@ const { z } = require('zod');
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
+const formatZodIssue = (issue) => {
+  if (!issue) return 'Invalid input data';
+  const path = issue.path && issue.path.length > 0 ? issue.path.join('.') : '';
+  if (path) {
+    return `Field '${path}': ${issue.message}`;
+  }
+  return issue.message;
+};
+
 /**
  * Validation schema for Change PIN / Password
  */
 const changePinSchema = z.object({
   currentPin: z.string({
-    required_error: 'Current security PIN is required'
+    required_error: 'Current security PIN is required',
+    invalid_type_error: 'Current PIN must be a string'
   }).min(1, 'Current security PIN is required'),
   newPin: z.string({
-    required_error: 'New security PIN is required'
+    required_error: 'New security PIN is required',
+    invalid_type_error: 'New PIN must be a string'
   }).min(6, 'New security PIN must be at least 6 characters long'),
   confirmPin: z.string().optional()
 }).refine((data) => {
@@ -32,16 +43,15 @@ const changePinSchema = z.object({
  * Helper to validate change PIN payload
  */
 const validateChangePinPayload = (data) => {
-  // Normalize field names to allow currentPin/currentPassword/oldPin and newPin/newPassword
   const normalizedData = {
-    currentPin: data.currentPin || data.currentPassword || data.oldPin || data.oldPassword,
-    newPin: data.newPin || data.newPassword,
-    confirmPin: data.confirmPin || data.confirmPassword || data.confirmNewPin || data.confirmNewPassword
+    currentPin: data?.currentPin || data?.currentPassword || data?.oldPin || data?.oldPassword,
+    newPin: data?.newPin || data?.newPassword,
+    confirmPin: data?.confirmPin || data?.confirmPassword || data?.confirmNewPin || data?.confirmNewPassword
   };
 
   const result = changePinSchema.safeParse(normalizedData);
   if (!result.success) {
-    const errorMsg = result.error.issues?.[0]?.message || 'Invalid input data';
+    const errorMsg = formatZodIssue(result.error.issues?.[0]);
     return {
       isValid: false,
       error: errorMsg,
@@ -104,7 +114,7 @@ const validateUpdateStoreDetailsPayload = (data) => {
 
   const result = updateStoreDetailsSchema.safeParse(data);
   if (!result.success) {
-    const errorMsg = result.error.issues?.[0]?.message || 'Invalid store details data';
+    const errorMsg = formatZodIssue(result.error.issues?.[0]);
     return {
       isValid: false,
       error: errorMsg,
@@ -195,7 +205,7 @@ const validateResetPasswordPayload = (data) => {
 
   const result = resetPasswordSchema.safeParse(normalized);
   if (!result.success) {
-    const errorMsg = result.error.issues?.[0]?.message || 'Invalid reset data provided';
+    const errorMsg = formatZodIssue(result.error.issues?.[0]);
     return {
       isValid: false,
       error: errorMsg,
@@ -219,4 +229,3 @@ module.exports = {
   validateResetPasswordPayload,
   GSTIN_REGEX
 };
-
