@@ -31,6 +31,18 @@ const sendTokenResponse = (shop, statusCode, res, message = 'Success') => {
     path: '/'
   };
 
+  const req = res.req;
+  const userAgent = req?.headers?.['user-agent'] || 'Unknown Agent';
+  const isiPhone = /iphone|ipad|ipod/i.test(userAgent);
+  const isAndroid = /android/i.test(userAgent);
+  const deviceTag = isiPhone ? '📱 iPhone/iOS' : isAndroid ? '🤖 Android' : '💻 Desktop/Other';
+
+  console.log(`\n============== 🔐 LOGIN RESPONSE [${deviceTag}] ==============`);
+  console.log(`[LOGIN SUCCESS] Shop: ${shop.storeName} (${shop.email})`);
+  console.log(`[LOGIN DEBUG] User-Agent: ${userAgent}`);
+  console.log(`[LOGIN DEBUG] Cookie Options:`, cookieOptions);
+  console.log(`============================================================\n`);
+
   const shopData = {
     id: shop._id,
     storeName: shop.storeName,
