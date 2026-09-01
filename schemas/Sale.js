@@ -77,13 +77,45 @@ const saleSchema = new mongoose.Schema({
     type: Number,
     required: [true, 'Net amount is required'],
     min: [0, 'Net amount cannot be negative']
+  },
+  // Dedicated Analytics & Timezone Fields
+  saleDate: {
+    type: Date,
+    default: Date.now,
+    index: true
+  },
+  formattedDate: {
+    type: String,
+    trim: true
+  },
+  formattedTime: {
+    type: String,
+    trim: true
+  },
+  formattedDateTime: {
+    type: String,
+    trim: true
+  },
+  hour: {
+    type: Number,
+    min: 0,
+    max: 23,
+    index: true
+  },
+  dayOfWeek: {
+    type: String,
+    trim: true,
+    index: true
   }
 }, {
   timestamps: true
 });
 
-// Index for fast analytics and date-range queries per shop
+// Compound Indexes for fast analytics, hourly traffic reports, and date-range queries per shop
 saleSchema.index({ shop: 1, createdAt: -1 });
+saleSchema.index({ shop: 1, saleDate: -1 });
+saleSchema.index({ shop: 1, hour: 1 });
+saleSchema.index({ shop: 1, dayOfWeek: 1 });
 
 const Sale = mongoose.model('Sale', saleSchema);
 

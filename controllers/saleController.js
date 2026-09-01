@@ -5,25 +5,44 @@ const { asyncHandler, ApiResponse } = require('../utils');
 const { validateCreateSalePayload } = require('../validations');
 
 /**
- * Helper to format Date into UI friendly strings (e.g. '01 Sept 2026', '06:22 pm')
+ * Helper to format Date into UI friendly strings in IST (Asia/Kolkata)
  */
-const formatDateTime = (dateObj) => {
-  const date = new Date(dateObj);
+const formatDateTimeIST = (dateObj) => {
+  const date = new Date(dateObj || Date.now());
+
   const formattedDate = date.toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata'
   });
+
   const formattedTime = date.toLocaleTimeString('en-IN', {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: true
+    hour12: true,
+    timeZone: 'Asia/Kolkata'
   }).toLowerCase();
 
+  const hourStr = date.toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    hour12: false,
+    timeZone: 'Asia/Kolkata'
+  });
+  const hour = parseInt(hourStr, 10);
+
+  const dayOfWeek = date.toLocaleDateString('en-IN', {
+    weekday: 'long',
+    timeZone: 'Asia/Kolkata'
+  });
+
   return {
-    date: formattedDate,
-    time: formattedTime,
-    formattedDateTime: `${formattedDate} · ${formattedTime}`
+    saleDate: date,
+    formattedDate,
+    formattedTime,
+    formattedDateTime: `${formattedDate} · ${formattedTime}`,
+    hour: isNaN(hour) ? date.getHours() : hour,
+    dayOfWeek
   };
 };
 
@@ -119,7 +138,11 @@ const createSale = asyncHandler(async (req, res) => {
 
   const netAmount = Number((totalAmount - (discount || 0)).toFixed(2));
 
-  // 3. Save Immutable Sale Transaction Record
+  // Compute timezone-aware (IST) date and analytics metrics
+  const saleTimestamp = decryptedPayload?.createdAt || decryptedPayload?.saleDate || Date.now();
+  const timeInfo = formatDateTimeIST(saleTimestamp);
+
+  // 3. Save Immutable Sale Transaction Record with Analytics Fields
   const sale = await Sale.create({
     invoiceNo,
     shop: shopId,
@@ -128,7 +151,13 @@ const createSale = asyncHandler(async (req, res) => {
     paymentMethod: paymentMethod.toUpperCase(),
     totalAmount,
     discount: discount || 0,
-    netAmount
+    netAmount,
+    saleDate: timeInfo.saleDate,
+    formattedDate: timeInfo.formattedDate,
+    formattedTime: timeInfo.formattedTime,
+    formattedDateTime: timeInfo.formattedDateTime,
+    hour: timeInfo.hour,
+    dayOfWeek: timeInfo.dayOfWeek
   });
 
   // 4. Stock Level Intelligence (Evaluate minStock thresholds after deduction)
@@ -147,8 +176,6 @@ const createSale = asyncHandler(async (req, res) => {
       isOutOfStock: p.stock <= 0
     }));
 
-  const timeFormatted = formatDateTime(sale.createdAt);
-
   return ApiResponse.success(res, {
     statusCode: 201,
     message: 'Sale completed successfully',
@@ -162,9 +189,12 @@ const createSale = asyncHandler(async (req, res) => {
       itemsCount: sale.items.length,
       items: sale.items,
       createdAt: sale.createdAt,
-      date: timeFormatted.date,
-      time: timeFormatted.time,
-      formattedDateTime: timeFormatted.formattedDateTime,
+      saleDate: sale.saleDate,
+      date: timeInfo.formattedDate,
+      time: timeInfo.formattedTime,
+      formattedDateTime: timeInfo.formattedDateTime,
+      hour: timeInfo.hour,
+      dayOfWeek: timeInfo.dayOfWeek,
       lowStockAlerts
     }
   });
@@ -251,15 +281,17 @@ const getSalesHistory = asyncHandler(async (req, res) => {
 
   // Format sales items for frontend UI
   const formattedSales = sales.map((sale) => {
-    const timeInfo = formatDateTime(sale.createdAt);
+    const timeInfo = formatDateTimeIST(sale.saleDate || sale.createdAt);
     const itemsCount = Array.isArray(sale.items) ? sale.items.reduce((acc, item) => acc + (item.quantity || 1), 0) : 0;
 
     return {
       id: sale._id,
       invoiceNo: sale.invoiceNo,
-      date: timeInfo.date,
-      time: timeInfo.time,
-      formattedDateTime: `${timeInfo.formattedDateTime} (${itemsCount} item${itemsCount !== 1 ? 's' : ''})`,
+      date: sale.formattedDate || timeInfo.formattedDate,
+      time: sale.formattedTime || timeInfo.formattedTime,
+      formattedDateTime: `${sale.formattedDateTime || timeInfo.formattedDateTime} (${itemsCount} item${itemsCount !== 1 ? 's' : ''})`,
+      hour: sale.hour !== undefined ? sale.hour : timeInfo.hour,
+      dayOfWeek: sale.dayOfWeek || timeInfo.dayOfWeek,
       itemsCount,
       paymentMethod: sale.paymentMethod,
       paymentBadge: sale.paymentMethod,
@@ -268,7 +300,8 @@ const getSalesHistory = asyncHandler(async (req, res) => {
       discount: sale.discount,
       netAmount: sale.netAmount,
       items: sale.items,
-      createdAt: sale.createdAt
+      createdAt: sale.createdAt,
+      saleDate: sale.saleDate || sale.createdAt
     };
   });
 
@@ -365,7 +398,7 @@ const getSaleDetails = asyncHandler(async (req, res) => {
     return ApiResponse.error(res, { statusCode: 404, message: 'Sale transaction record not found' });
   }
 
-  const timeInfo = formatDateTime(sale.createdAt);
+  const timeInfo = formatDateTimeIST(sale.saleDate || sale.createdAt);
 
   // Address formatting helper
   const storeAddressStr = typeof shop.address === 'object'
@@ -384,9 +417,11 @@ const getSaleDetails = asyncHandler(async (req, res) => {
     invoice: {
       id: sale._id,
       invoiceNo: sale.invoiceNo,
-      date: timeInfo.date,
-      time: timeInfo.time,
-      formattedDateTime: `${timeInfo.formattedDateTime}`,
+      date: sale.formattedDate || timeInfo.formattedDate,
+      time: sale.formattedTime || timeInfo.formattedTime,
+      formattedDateTime: `${sale.formattedDateTime || timeInfo.formattedDateTime}`,
+      hour: sale.hour !== undefined ? sale.hour : timeInfo.hour,
+      dayOfWeek: sale.dayOfWeek || timeInfo.dayOfWeek,
       paymentMethod: sale.paymentMethod,
       paymentStatusLabel: `${sale.paymentMethod} PAID`,
       subtotal: sale.totalAmount,
@@ -400,7 +435,8 @@ const getSaleDetails = asyncHandler(async (req, res) => {
         rate: item.price,
         amount: item.subtotal
       })),
-      createdAt: sale.createdAt
+      createdAt: sale.createdAt,
+      saleDate: sale.saleDate || sale.createdAt
     }
   };
 
