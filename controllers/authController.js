@@ -108,9 +108,11 @@ const registerShop = async (req, res, next) => {
       });
     }
 
-    // Check if shop already exists with this GSTIN (if provided)
-    if (gstin && gstin.trim()) {
-      const normalizedGstin = gstin.trim().toUpperCase();
+    // Format GSTIN: defaults to empty string "" if not sent or empty
+    const normalizedGstin = (gstin && typeof gstin === 'string') ? gstin.trim().toUpperCase() : '';
+
+    // Check if shop already exists with this GSTIN (if non-empty)
+    if (normalizedGstin) {
       const shopByGstin = await Shop.findOne({ gstin: normalizedGstin, isVerified: true });
       if (shopByGstin && (!shop || String(shopByGstin._id) !== String(shop._id))) {
         return res.status(400).json({
@@ -133,7 +135,7 @@ const registerShop = async (req, res, next) => {
       shop.phone = normalizedPhone;
       shop.password = password; // Pre-save hook will hash
       shop.address = address || shop.address;
-      shop.gstin = gstin ? gstin.trim().toUpperCase() : shop.gstin;
+      shop.gstin = normalizedGstin;
       if (plan) shop.plan = plan;
       shop.otp = otp;
       shop.otpExpires = otpExpires;
@@ -146,8 +148,8 @@ const registerShop = async (req, res, next) => {
         phone: normalizedPhone,
         password, // Pre-save hook will hash
         shopCode,
-        address,
-        gstin: gstin ? gstin.trim().toUpperCase() : '',
+        address: address || '',
+        gstin: normalizedGstin,
         plan: plan || 'pro',
         isVerified: false,
         otp,
