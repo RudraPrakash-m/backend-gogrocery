@@ -1,30 +1,12 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 const config = require('../config');
-
-// Create reusable Nodemailer transporter instance
-const createTransporter = () => {
-  if (config.smtp.user && config.smtp.pass) {
-    return nodemailer.createTransport({
-      host: config.smtp.host,
-      port: config.smtp.port,
-      secure: config.smtp.port === 465,
-      auth: {
-        user: config.smtp.user,
-        pass: config.smtp.pass
-      }
-    });
-  }
-  
-  // Return null if no SMTP credentials provided
-  return null;
-};
 
 /**
  * Sends OTP Email for shop registration verification
  */
 const sendOtpEmail = async (toEmail, otp, storeName = 'Valued Partner') => {
   const mailOptions = {
-    from: config.smtp.from,
+    from: config.sendgrid?.from || process.env.EMAIL_FROM || 'rudra.aashdit@gmail.com',
     to: toEmail,
     subject: 'GoGrocery - Verification OTP Code',
     html: `
@@ -43,13 +25,15 @@ const sendOtpEmail = async (toEmail, otp, storeName = 'Valued Partner') => {
   };
 
   try {
-    const transporter = createTransporter();
-    if (transporter) {
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`[EmailService] OTP email sent to ${toEmail}: ${info.messageId}`);
-      return { success: true, messageId: info.messageId };
+    const apiKey = config.sendgrid?.apiKey || process.env.SENDGRID_API_KEY;
+    if (apiKey) {
+      sgMail.setApiKey(apiKey);
+      const [response] = await sgMail.send(mailOptions);
+      const messageId = response?.headers?.['x-message-id'];
+      console.log(`[EmailService] OTP email sent to ${toEmail}${messageId ? `: ${messageId}` : ''}`);
+      return { success: true, messageId };
     } else {
-      console.log(`[EmailService] SMTP credentials not set. [DEV OTP for ${toEmail}]: ${otp}`);
+      console.log(`[EmailService] SendGrid API key not set. [DEV OTP for ${toEmail}]: ${otp}`);
       return { success: true, devMode: true, otp };
     }
   } catch (error) {
@@ -64,7 +48,7 @@ const sendOtpEmail = async (toEmail, otp, storeName = 'Valued Partner') => {
  */
 const sendRegistrationSuccessEmail = async (toEmail, storeName, shopCode) => {
   const mailOptions = {
-    from: config.smtp.from,
+    from: config.sendgrid?.from || process.env.EMAIL_FROM || 'rudra.aashdit@gmail.com',
     to: toEmail,
     subject: 'GoGrocery - Registration Successful & Your Unique Shop Code',
     html: `
@@ -86,13 +70,15 @@ const sendRegistrationSuccessEmail = async (toEmail, storeName, shopCode) => {
   };
 
   try {
-    const transporter = createTransporter();
-    if (transporter) {
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`[EmailService] Success email sent to ${toEmail}: ${info.messageId}`);
-      return { success: true, messageId: info.messageId };
+    const apiKey = config.sendgrid?.apiKey || process.env.SENDGRID_API_KEY;
+    if (apiKey) {
+      sgMail.setApiKey(apiKey);
+      const [response] = await sgMail.send(mailOptions);
+      const messageId = response?.headers?.['x-message-id'];
+      console.log(`[EmailService] Success email sent to ${toEmail}${messageId ? `: ${messageId}` : ''}`);
+      return { success: true, messageId };
     } else {
-      console.log(`[EmailService] SMTP credentials not set. [DEV SUCCESS EMAIL to ${toEmail} - ShopCode: ${shopCode}]`);
+      console.log(`[EmailService] SendGrid API key not set. [DEV SUCCESS EMAIL to ${toEmail} - ShopCode: ${shopCode}]`);
       return { success: true, devMode: true };
     }
   } catch (error) {
@@ -106,7 +92,7 @@ const sendRegistrationSuccessEmail = async (toEmail, storeName, shopCode) => {
  */
 const sendPasswordResetOtpEmail = async (toEmail, otp, storeName = 'Merchant') => {
   const mailOptions = {
-    from: config.smtp.from,
+    from: config.sendgrid?.from || process.env.EMAIL_FROM || 'rudra.aashdit@gmail.com',
     to: toEmail,
     subject: 'GoGrocery - Password / PIN Reset OTP Code',
     html: `
@@ -125,13 +111,15 @@ const sendPasswordResetOtpEmail = async (toEmail, otp, storeName = 'Merchant') =
   };
 
   try {
-    const transporter = createTransporter();
-    if (transporter) {
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`[EmailService] Password reset OTP email sent to ${toEmail}: ${info.messageId}`);
-      return { success: true, messageId: info.messageId };
+    const apiKey = config.sendgrid?.apiKey || process.env.SENDGRID_API_KEY;
+    if (apiKey) {
+      sgMail.setApiKey(apiKey);
+      const [response] = await sgMail.send(mailOptions);
+      const messageId = response?.headers?.['x-message-id'];
+      console.log(`[EmailService] Password reset OTP email sent to ${toEmail}${messageId ? `: ${messageId}` : ''}`);
+      return { success: true, messageId };
     } else {
-      console.log(`[EmailService] SMTP credentials not set. [DEV RESET OTP for ${toEmail}]: ${otp}`);
+      console.log(`[EmailService] SendGrid API key not set. [DEV RESET OTP for ${toEmail}]: ${otp}`);
       return { success: true, devMode: true, otp };
     }
   } catch (error) {
@@ -146,4 +134,3 @@ module.exports = {
   sendRegistrationSuccessEmail,
   sendPasswordResetOtpEmail
 };
-
