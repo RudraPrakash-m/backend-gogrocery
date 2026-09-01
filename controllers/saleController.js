@@ -5,6 +5,29 @@ const { asyncHandler, ApiResponse } = require('../utils');
 const { validateCreateSalePayload } = require('../validations');
 
 /**
+ * Helper to format Date into UI friendly strings (e.g. '01 Sept 2026', '06:22 pm')
+ */
+const formatDateTime = (dateObj) => {
+  const date = new Date(dateObj);
+  const formattedDate = date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+  const formattedTime = date.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).toLowerCase();
+
+  return {
+    date: formattedDate,
+    time: formattedTime,
+    formattedDateTime: `${formattedDate} · ${formattedTime}`
+  };
+};
+
+/**
  * Helper to generate a unique Invoice Number per shop
  * Format: INV-YYYYMMDD-SHOPCODE-XXXX
  */
@@ -124,6 +147,8 @@ const createSale = asyncHandler(async (req, res) => {
       isOutOfStock: p.stock <= 0
     }));
 
+  const timeFormatted = formatDateTime(sale.createdAt);
+
   return ApiResponse.success(res, {
     statusCode: 201,
     message: 'Sale completed successfully',
@@ -137,6 +162,9 @@ const createSale = asyncHandler(async (req, res) => {
       itemsCount: sale.items.length,
       items: sale.items,
       createdAt: sale.createdAt,
+      date: timeFormatted.date,
+      time: timeFormatted.time,
+      formattedDateTime: timeFormatted.formattedDateTime,
       lowStockAlerts
     }
   });
@@ -144,7 +172,7 @@ const createSale = asyncHandler(async (req, res) => {
 
 /**
  * @route   GET /api/sales
- * @desc    Get sales transaction history for logged-in shop (supports pagination & date filter)
+ * @desc    Get sales transaction history for logged-in shop formatted for UI dashboard & tabs
  * @access  Private (Shop Authorized)
  */
 const getSalesHistory = asyncHandler(async (req, res) => {
@@ -155,34 +183,106 @@ const getSalesHistory = asyncHandler(async (req, res) => {
 
   const query = { shop: shopId };
 
-  // Filter by payment method
-  if (req.query.paymentMethod) {
-    query.paymentMethod = req.query.paymentMethod.toUpperCase();
+  // Tab & Payment method filtering (all, cash, upi, card, other)
+  const tabFilter = (req.query.tab || req.query.paymentMethod || 'all').toLowerCase();
+  if (tabFilter !== 'all') {
+    query.paymentMethod = tabFilter.toUpperCase();
   }
 
-  // Filter by date range
+  // Search filter (Invoice number or Product Name)
+  if (req.query.search && req.query.search.trim()) {
+    const searchRegex = new RegExp(req.query.search.trim(), 'i');
+    query.$or = [
+      { invoiceNo: searchRegex },
+      { 'items.productName': searchRegex }
+    ];
+  }
+
+  // Date range filtering
   if (req.query.startDate || req.query.endDate) {
     query.createdAt = {};
     if (req.query.startDate) {
       query.createdAt.$gte = new Date(req.query.startDate);
     }
     if (req.query.endDate) {
-      query.createdAt.$lte = new Date(req.query.endDate);
+      const end = new Date(req.query.endDate);
+      end.setHours(23, 59, 59, 999);
+      query.createdAt.$lte = end;
     }
   }
+
+  // Aggregate metrics summary for top cards (totalSales, totalBills)
+  const metricsAgg = await Sale.aggregate([
+    { $match: { shop: shopId } },
+    {
+      $group: {
+        _id: null,
+        totalSales: { $sum: '$netAmount' },
+        totalBills: { $sum: 1 },
+        cashSales: {
+          $sum: { $cond: [{ $eq: ['$paymentMethod', 'CASH'] }, '$netAmount', 0] }
+        },
+        upiSales: {
+          $sum: { $cond: [{ $eq: ['$paymentMethod', 'UPI'] }, '$netAmount', 0] }
+        },
+        cardSales: {
+          $sum: { $cond: [{ $eq: ['$paymentMethod', 'CARD'] }, '$netAmount', 0] }
+        }
+      }
+    }
+  ]);
+
+  const summary = metricsAgg[0] || {
+    totalSales: 0,
+    totalBills: 0,
+    cashSales: 0,
+    upiSales: 0,
+    cardSales: 0
+  };
 
   const [sales, total] = await Promise.all([
     Sale.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit),
+      .limit(limit)
+      .lean(),
     Sale.countDocuments(query)
   ]);
+
+  // Format sales items for frontend UI
+  const formattedSales = sales.map((sale) => {
+    const timeInfo = formatDateTime(sale.createdAt);
+    const itemsCount = Array.isArray(sale.items) ? sale.items.reduce((acc, item) => acc + (item.quantity || 1), 0) : 0;
+
+    return {
+      id: sale._id,
+      invoiceNo: sale.invoiceNo,
+      date: timeInfo.date,
+      time: timeInfo.time,
+      formattedDateTime: `${timeInfo.formattedDateTime} (${itemsCount} item${itemsCount !== 1 ? 's' : ''})`,
+      itemsCount,
+      paymentMethod: sale.paymentMethod,
+      paymentBadge: sale.paymentMethod,
+      total: sale.netAmount,
+      subtotal: sale.totalAmount,
+      discount: sale.discount,
+      netAmount: sale.netAmount,
+      items: sale.items,
+      createdAt: sale.createdAt
+    };
+  });
 
   return ApiResponse.success(res, {
     statusCode: 200,
     message: 'Sales history retrieved successfully',
-    data: sales,
+    summary: {
+      totalSales: summary.totalSales,
+      totalBills: summary.totalBills,
+      cashSales: summary.cashSales,
+      upiSales: summary.upiSales,
+      cardSales: summary.cardSales
+    },
+    data: formattedSales,
     pagination: {
       total,
       page,
@@ -193,32 +293,127 @@ const getSalesHistory = asyncHandler(async (req, res) => {
 });
 
 /**
- * @route   GET /api/sales/:id
- * @desc    Get single sale transaction details by ID or Invoice Number
+ * @route   GET /api/sales/metrics
+ * @desc    Get top summary cards metrics for shop sales
+ * @access  Private (Shop Authorized)
+ */
+const getSaleMetrics = asyncHandler(async (req, res) => {
+  const shopId = req.shop._id;
+
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const metricsAgg = await Sale.aggregate([
+    { $match: { shop: shopId } },
+    {
+      $group: {
+        _id: null,
+        totalSales: { $sum: '$netAmount' },
+        totalBills: { $sum: 1 },
+        cashSales: {
+          $sum: { $cond: [{ $eq: ['$paymentMethod', 'CASH'] }, '$netAmount', 0] }
+        },
+        upiSales: {
+          $sum: { $cond: [{ $eq: ['$paymentMethod', 'UPI'] }, '$netAmount', 0] }
+        },
+        cardSales: {
+          $sum: { $cond: [{ $eq: ['$paymentMethod', 'CARD'] }, '$netAmount', 0] }
+        },
+        todaySales: {
+          $sum: { $cond: [{ $gte: ['$createdAt', startOfToday] }, '$netAmount', 0] }
+        },
+        todayBills: {
+          $sum: { $cond: [{ $gte: ['$createdAt', startOfToday] }, 1, 0] }
+        }
+      }
+    }
+  ]);
+
+  const metrics = metricsAgg[0] || {
+    totalSales: 0,
+    totalBills: 0,
+    cashSales: 0,
+    upiSales: 0,
+    cardSales: 0,
+    todaySales: 0,
+    todayBills: 0
+  };
+
+  return ApiResponse.success(res, {
+    statusCode: 200,
+    message: 'Sales metrics retrieved successfully',
+    data: metrics
+  });
+});
+
+/**
+ * @route   GET /api/sales/:id OR GET /api/sales/invoice/:invoiceNo
+ * @desc    Get complete bill details + store header info for View Bill Modal & Thermal Receipt Printing
  * @access  Private (Shop Authorized)
  */
 const getSaleDetails = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const shopId = req.shop._id;
+  const idOrInvoice = req.params.id || req.params.invoiceNo;
+  const shop = req.shop;
+  const shopId = shop._id;
 
-  const query = mongoose.Types.ObjectId.isValid(id)
-    ? { _id: id, shop: shopId }
-    : { invoiceNo: id, shop: shopId };
+  const query = mongoose.Types.ObjectId.isValid(idOrInvoice)
+    ? { _id: idOrInvoice, shop: shopId }
+    : { invoiceNo: idOrInvoice, shop: shopId };
 
-  const sale = await Sale.findOne(query);
+  const sale = await Sale.findOne(query).lean();
   if (!sale) {
     return ApiResponse.error(res, { statusCode: 404, message: 'Sale transaction record not found' });
   }
 
+  const timeInfo = formatDateTime(sale.createdAt);
+
+  // Address formatting helper
+  const storeAddressStr = typeof shop.address === 'object'
+    ? [shop.address.street, shop.address.city, shop.address.state, shop.address.pincode].filter(Boolean).join(', ')
+    : (shop.address || '');
+
+  // Format response for direct rendering in View Bill Modal & Thermal Receipt Printer
+  const receiptData = {
+    store: {
+      storeName: shop.storeName,
+      address: storeAddressStr || 'Store Address',
+      phone: shop.phone || '',
+      gstin: shop.gstin || '',
+      shopCode: shop.shopCode || ''
+    },
+    invoice: {
+      id: sale._id,
+      invoiceNo: sale.invoiceNo,
+      date: timeInfo.date,
+      time: timeInfo.time,
+      formattedDateTime: `${timeInfo.formattedDateTime}`,
+      paymentMethod: sale.paymentMethod,
+      paymentStatusLabel: `${sale.paymentMethod} PAID`,
+      subtotal: sale.totalAmount,
+      discount: sale.discount || 0,
+      totalBill: sale.netAmount,
+      itemsCount: sale.items.length,
+      items: sale.items.map(item => ({
+        id: item.product || item._id,
+        name: item.productName,
+        qty: item.quantity,
+        rate: item.price,
+        amount: item.subtotal
+      })),
+      createdAt: sale.createdAt
+    }
+  };
+
   return ApiResponse.success(res, {
     statusCode: 200,
-    message: 'Sale details retrieved successfully',
-    data: sale
+    message: 'Sale details and store receipt data retrieved successfully',
+    data: receiptData
   });
 });
 
 module.exports = {
   createSale,
   getSalesHistory,
+  getSaleMetrics,
   getSaleDetails
 };
