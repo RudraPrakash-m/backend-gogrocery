@@ -50,7 +50,47 @@ const validateCreateSalePayload = (data) => {
     };
   }
 
-  const result = createSaleSchema.safeParse(data);
+  // Normalize item fields dynamically to support product/productId/id/_id & numeric coercion
+  const normalizedItems = Array.isArray(data.items)
+    ? data.items.map((item) => {
+        if (!item || typeof item !== 'object') return item;
+        const productIdCandidate = item.product || item.productId || item.id || item._id;
+        const productIdStr = productIdCandidate ? String(productIdCandidate).trim() : undefined;
+
+        const rawPrice = item.price !== undefined ? item.price : item.sellingPrice;
+        const priceNum = rawPrice !== undefined && rawPrice !== null ? Number(rawPrice) : undefined;
+
+        const rawQty = item.quantity !== undefined ? item.quantity : item.qty;
+        const qtyNum = rawQty !== undefined && rawQty !== null ? Number(rawQty) : undefined;
+
+        return {
+          ...item,
+          product: productIdStr,
+          productName: item.productName || item.name || item.title || undefined,
+          quantity: qtyNum,
+          price: priceNum
+        };
+      })
+    : data.items;
+
+  const rawPaymentMethod = data.paymentMethod || data.paymentMode || data.payment_method || 'CASH';
+  const paymentMethodStr = String(rawPaymentMethod).toUpperCase().trim();
+
+  const rawTotal = data.totalAmount !== undefined ? data.totalAmount : (data.total !== undefined ? data.total : data.netAmount);
+  const totalAmountNum = rawTotal !== undefined && rawTotal !== null ? Number(rawTotal) : undefined;
+
+  const rawDiscount = data.discount !== undefined ? data.discount : 0;
+  const discountNum = rawDiscount !== undefined && rawDiscount !== null ? Number(rawDiscount) : 0;
+
+  const normalizedData = {
+    ...data,
+    items: normalizedItems,
+    paymentMethod: paymentMethodStr,
+    totalAmount: totalAmountNum,
+    discount: discountNum
+  };
+
+  const result = createSaleSchema.safeParse(normalizedData);
   if (!result.success) {
     const errorMsg = formatZodIssue(result.error.issues?.[0]);
     return {

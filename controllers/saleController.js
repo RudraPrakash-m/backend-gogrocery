@@ -47,40 +47,51 @@ const createSale = asyncHandler(async (req, res) => {
 
   // Build items array with verified product names and calculated subtotals
   const saleItems = [];
+  const stockDeductionOps = [];
 
   for (const item of items) {
     const dbProduct = dbProductMap.get(String(item.product));
-    if (!dbProduct) {
-      return ApiResponse.error(res, { statusCode: 400, message: `Product not found or access denied for ID: ${item.product}` });
-    }
-
     const subtotal = Number((item.quantity * item.price).toFixed(2));
+    const itemProductName = item.productName || item.name || (dbProduct ? dbProduct.name : 'General Item');
 
-    saleItems.push({
-      product: dbProduct._id,
-      productName: item.productName || dbProduct.name,
-      quantity: item.quantity,
-      price: item.price,
-      subtotal
-    });
+    if (dbProduct) {
+      saleItems.push({
+        product: dbProduct._id,
+        productName: itemProductName,
+        quantity: item.quantity,
+        price: item.price,
+        subtotal
+      });
+
+      // Prepare atomic stock deduction write operation ($inc: { stock: -quantity })
+      stockDeductionOps.push(
+        Product.updateOne(
+          { _id: dbProduct._id },
+          { $inc: { stock: -item.quantity } }
+        )
+      );
+    } else {
+      // Ad-hoc or uncatalogued custom cart item
+      saleItems.push({
+        product: (item.product && mongoose.Types.ObjectId.isValid(item.product)) ? new mongoose.Types.ObjectId(item.product) : undefined,
+        productName: itemProductName,
+        quantity: item.quantity,
+        price: item.price,
+        subtotal
+      });
+    }
   }
 
-  // 1. Atomic Inventory Deduction in MongoDB using $inc
-  await Promise.all(
-    saleItems.map(item =>
-      Product.updateOne(
-        { _id: item.product },
-        { $inc: { stock: -item.quantity } }
-      )
-    )
-  );
+  // 1. Atomic Inventory Deduction in MongoDB for catalogued items
+  if (stockDeductionOps.length > 0) {
+    await Promise.all(stockDeductionOps);
+  }
 
-  // 2. Generate Unique Invoice Number
-  let invoiceNo = generateInvoiceNumber(shopCode);
+  // 2. Generate Unique Invoice Number (use frontend invoiceNo if sent, or generate server-side)
+  let invoiceNo = decryptedPayload?.invoiceNo || generateInvoiceNumber(shopCode);
   let existingInvoice = await Sale.findOne({ invoiceNo });
-  while (existingInvoice) {
+  if (existingInvoice && decryptedPayload?.invoiceNo) {
     invoiceNo = generateInvoiceNumber(shopCode);
-    existingInvoice = await Sale.findOne({ invoiceNo });
   }
 
   const netAmount = Number((totalAmount - (discount || 0)).toFixed(2));
