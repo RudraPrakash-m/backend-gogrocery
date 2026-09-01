@@ -3,7 +3,7 @@ const { Shop } = require('../schemas');
 
 /**
  * Middleware to protect routes and verify JWT token from cookies or Authorization header
- * Contains structured Android vs iPhone device detection and debug logging.
+ * Stateless & multi-instance ready with sanitized logging.
  */
 const protect = async (req, res, next) => {
   try {
@@ -18,27 +18,24 @@ const protect = async (req, res, next) => {
     // 1. Extract token from HTTP-only cookie
     if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
-      tokenSource = 'Cookie (req.cookies.token)';
+      tokenSource = 'Cookie';
     } 
     // 2. Fallback to Authorization header (Bearer token)
     else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
-      tokenSource = 'Header (Authorization: Bearer)';
+      tokenSource = 'Bearer Header';
     }
 
-    // Structured Console Debug Logging for Render Dashboard
-    console.log(`\n-------------- 🛡️ AUTH CHECK [${deviceTag}] --------------`);
-    console.log(`[AUTH CHECK] Method & Path : ${req.method} ${req.originalUrl}`);
-    console.log(`[AUTH CHECK] Origin        : ${req.headers.origin || 'No Origin Header'}`);
-    console.log(`[AUTH CHECK] Raw Cookie Hdr: ${req.headers.cookie ? 'PRESENT' : 'MISSING (No Cookie Sent!)'}`);
-    console.log(`[AUTH CHECK] Parsed Cookies:`, req.cookies);
-    console.log(`[AUTH CHECK] Auth Header   : ${req.headers.authorization || 'MISSING'}`);
-    console.log(`[AUTH CHECK] Token Source  : ${tokenSource}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Auth Check] ${req.method} ${req.originalUrl} | Device: ${deviceTag} | Source: ${tokenSource}`);
+    }
 
     if (!token || token === 'none') {
-      console.log(`[AUTH CHECK ❌ FAILED] REASON: No Token provided via Cookie or Bearer Header.`);
-      console.log(`-------------------------------------------------------------\n`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Auth Check ❌] Access denied: No token provided in Cookie or Header.`);
+      }
       return res.status(401).json({
+        success: false,
         status: 'fail',
         message: 'Access denied. Please log in to access this resource.'
       });
@@ -47,40 +44,42 @@ const protect = async (req, res, next) => {
     // Verify token
     const decoded = verifyToken(token);
 
+    if (!decoded || !decoded.id) {
+      return res.status(401).json({
+        success: false,
+        status: 'fail',
+        message: 'Invalid or malformed authentication token.'
+      });
+    }
+
     // Find shop in database
     const shop = await Shop.findById(decoded.id);
 
     if (!shop) {
-      console.log(`[AUTH CHECK ❌ FAILED] REASON: Shop ID ${decoded.id} not found in database.`);
-      console.log(`-------------------------------------------------------------\n`);
       return res.status(401).json({
+        success: false,
         status: 'fail',
         message: 'The shop user belonging to this token no longer exists.'
       });
     }
 
     if (!shop.isVerified) {
-      console.log(`[AUTH CHECK ❌ FAILED] REASON: Shop account is not verified.`);
-      console.log(`-------------------------------------------------------------\n`);
       return res.status(401).json({
+        success: false,
         status: 'fail',
         message: 'Shop account is not verified.'
       });
     }
-
-    console.log(`[AUTH CHECK ✅ SUCCESS] Authenticated as: ${shop.storeName} (${shop.email})`);
-    console.log(`-------------------------------------------------------------\n`);
 
     // Attach shop to request object
     req.shop = shop;
     req.user = shop;
     next();
   } catch (error) {
-    console.log(`[AUTH CHECK ❌ FAILED] REASON: JWT Verification Error - ${error.message}`);
-    console.log(`-------------------------------------------------------------\n`);
     return res.status(401).json({
+      success: false,
       status: 'fail',
-      message: 'Invalid or expired token. Please log in again.'
+      message: 'Invalid or expired authentication token. Please log in again.'
     });
   }
 };

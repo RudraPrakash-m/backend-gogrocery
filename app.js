@@ -27,9 +27,9 @@ app.use(cors({
 // 3. Response Compression (Gzip / Deflate for fast JSON transfers)
 app.use(compression());
 
-// 4. Request Logging
+// 4. Request Logging (Environment-Aware)
 if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('dev'));
+  app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 }
 
 // 5. Cookie Parser
@@ -45,13 +45,22 @@ app.use(mongoSanitize);
 // 8. General API Rate Limiting
 app.use('/api', apiLimiter);
 
-// Root health route
+// Root health route (For cloud load balancers & uptime monitors)
 app.get('/health', healthController.getHealthStatus);
 
 // API routes
 app.use('/api', routes);
 
-// Global Error Handler
+// 9. Catch-all 404 Handler for Undefined Routes
+app.use((req, res, next) => {
+  res.status(404).json({
+    success: false,
+    status: 'fail',
+    message: `Cannot ${req.method} ${req.originalUrl}. Route not found.`
+  });
+});
+
+// 10. Global Error Handler
 app.use(errorHandler);
 
 module.exports = app;
