@@ -15,8 +15,9 @@ const app = express();
 app.use(helmet());
 
 // 2. CORS Configuration
+const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/\/$/, '') : true;
 app.use(cors({
-  origin: process.env.FRONTEND_URL || true,
+  origin: frontendUrl,
   credentials: true
 }));
 
