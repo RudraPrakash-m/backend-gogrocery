@@ -27,7 +27,8 @@ const sendTokenResponse = (shop, statusCode, res, message = 'Success') => {
     expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
     httpOnly: true, // Prevents XSS attacks
     secure: process.env.NODE_ENV === 'production', // Use HTTPS in production
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    path: '/'
   };
 
   const shopData = {
@@ -359,7 +360,8 @@ const logoutShop = async (req, res) => {
     expires: new Date(Date.now() + 5 * 1000),
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    path: '/'
   });
 
   res.status(200).json({

@@ -11,6 +11,9 @@ const { errorHandler, apiLimiter, mongoSanitize } = require('./middlewares');
 
 const app = express();
 
+// Trust reverse proxy (Required for Render, Heroku, Nginx to handle HTTPS & secure cookies)
+app.set('trust proxy', 1);
+
 // 1. Core Security Headers
 app.use(helmet());
 

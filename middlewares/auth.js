@@ -8,6 +8,14 @@ const protect = async (req, res, next) => {
   try {
     let token = null;
 
+    // Debug logs for Render Dashboard (inspect iPhone cookie / auth header delivery)
+    if (process.env.NODE_ENV !== 'test') {
+      console.log(`[Auth Middleware Debug] Path: ${req.originalUrl}`);
+      console.log('[Auth Middleware Debug] Cookies:', req.cookies);
+      console.log('[Auth Middleware Debug] Cookie Token:', req.cookies?.token);
+      console.log('[Auth Middleware Debug] Auth Header:', req.headers.authorization);
+    }
+
     // 1. Extract token from HTTP-only cookie
     if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
